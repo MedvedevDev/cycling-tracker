@@ -1,36 +1,77 @@
-import React, { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
   ScrollView,
+  StyleSheet,
+  Text,
   TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+// STORAGE KEY
+const STORAGE_KEY = "@elbe_ride_active_index";
+
 const ROUTE_DATA = [
-  { id: "1", name: "Jenischpark" },
-  { id: "2", name: "Hirsch Park" },
-  { id: "3", name: "Waldpark Falkenstein" },
-  { id: "4", name: "Klövensteen" },
-  { id: "5", name: "Hetlinger Schanze" },
-  { id: "6", name: "Haseldorfer Marsch" },
-  { id: "7", name: "Stadtpark Glückstadt" },
+  { id: "1", name: "Jenischpark", latitude: 53.5451, longitude: 9.8669 },
+  { id: "2", name: "Hirsch Park", latitude: 53.5552, longitude: 9.8242 },
+  {
+    id: "3",
+    name: "Waldpark Falkenstein",
+    latitude: 53.5601,
+    longitude: 9.7614,
+  },
+  { id: "4", name: "Klövensteen", latitude: 53.5938, longitude: 9.7401 },
+  { id: "5", name: "Hetlinger Schanze", latitude: 53.6015, longitude: 9.635 },
+  { id: "6", name: "Haseldorfer Marsch", latitude: 53.6334, longitude: 9.5982 },
+  {
+    id: "7",
+    name: "Stadtpark Glückstadt",
+    latitude: 53.7912,
+    longitude: 9.4245,
+  },
 ];
 
 export default function HomeScreen() {
   const [activeParkIndex, setActiveParkIndex] = useState(0);
 
+  // save progress to local storage
+  useEffect(() => {
+    const loadProgress = async () => {
+      try {
+        const savedIndex = await AsyncStorage.getItem(STORAGE_KEY);
+        if (savedIndex !== null) {
+          setActiveParkIndex(parseInt(savedIndex, 10));
+        }
+      } catch (err) {
+        console.error("Failed to load ride progress from storage.", err);
+      }
+    };
+    loadProgress();
+  }, []);
+
   // button handlers
-  const nextPark = () => {
+  const nextPark = async () => {
     if (activeParkIndex < ROUTE_DATA.length - 1) {
-      setActiveParkIndex(activeParkIndex + 1);
+      const nextIndex = activeParkIndex + 1;
+      setActiveParkIndex(nextIndex);
+      try {
+        await AsyncStorage.setItem(STORAGE_KEY, nextIndex.toString());
+      } catch (err) {
+        console.error("Failed to save nextIndex.", err);
+      }
     }
   };
 
-  const previousPark = () => {
+  const previousPark = async () => {
     if (activeParkIndex > 0) {
-      setActiveParkIndex(activeParkIndex - 1);
+      const prevIndex = activeParkIndex - 1;
+      setActiveParkIndex(prevIndex);
+      try {
+        await AsyncStorage.setItem(STORAGE_KEY, prevIndex.toString());
+      } catch (err) {
+        console.error("Failed to save prevIndex.", err);
+      }
     }
   };
 
