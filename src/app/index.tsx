@@ -1,41 +1,141 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
 import React, { useEffect, useState } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// STORAGE KEY
+// local storage key
 const STORAGE_KEY = "@elbe_ride_active_index";
 
+// ray-Casting Algorithm
+const isPointInPolygon = (
+  point: { latitude: number; longitude: number },
+  polygon: { latitude: number; longitude: number }[],
+) => {
+  let isInside = false;
+  const x = point.latitude;
+  const y = point.longitude;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].latitude;
+    const yi = polygon[i].longitude;
+    const xj = polygon[j].latitude;
+    const yj = polygon[j].longitude;
+
+    // Checks if an imaginary horizontal line drawn from your location intersects the park's borders
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) isInside = !isInside;
+  }
+  return isInside;
+};
+
+// parks data
 const ROUTE_DATA = [
-  { id: "1", name: "Jenischpark", latitude: 53.5451, longitude: 9.8669 },
-  { id: "2", name: "Hirsch Park", latitude: 53.5552, longitude: 9.8242 },
+  {
+    id: "1",
+    name: "Jenischpark",
+    boundary: [
+      { latitude: 53.556, longitude: 9.86 },
+      { latitude: 53.556, longitude: 9.872 },
+      { latitude: 53.547, longitude: 9.872 },
+      { latitude: 53.547, longitude: 9.86 },
+    ],
+  },
+  {
+    id: "2",
+    name: "Hirsch Park",
+    boundary: [
+      { latitude: 53.559, longitude: 9.818 },
+      { latitude: 53.559, longitude: 9.83 },
+      { latitude: 53.551, longitude: 9.83 },
+      { latitude: 53.551, longitude: 9.818 },
+    ],
+  },
   {
     id: "3",
     name: "Waldpark Falkenstein",
-    latitude: 53.5601,
-    longitude: 9.7614,
+    boundary: [
+      { latitude: 53.575, longitude: 9.75 },
+      { latitude: 53.575, longitude: 9.785 },
+      { latitude: 53.56, longitude: 9.785 },
+      { latitude: 53.56, longitude: 9.75 },
+    ],
   },
-  { id: "4", name: "Klövensteen", latitude: 53.5938, longitude: 9.7401 },
-  { id: "5", name: "Hetlinger Schanze", latitude: 53.6015, longitude: 9.635 },
-  { id: "6", name: "Haseldorfer Marsch", latitude: 53.6334, longitude: 9.5982 },
   {
-    id: "7",
-    name: "Stadtpark Glückstadt",
-    latitude: 53.7912,
-    longitude: 9.4245,
+    id: "4",
+    name: "Klövensteen",
+    boundary: [
+      { latitude: 53.598, longitude: 9.732 },
+      { latitude: 53.598, longitude: 9.748 },
+      { latitude: 53.588, longitude: 9.748 },
+      { latitude: 53.588, longitude: 9.732 },
+    ],
   },
+  { id: "5", name: "Hetlinger Schanze" },
+  { id: "6", name: "Haseldorfer Marsch" },
+  { id: "7", name: "Stadtpark Glückstadt" },
 ];
 
 export default function HomeScreen() {
   const [activeParkIndex, setActiveParkIndex] = useState(0);
+  const [location, setLocation] = useState<Location.LocationObject | null>(
+    null,
+  );
+  const [locationError, setLocationError] = useState<string | null>(null);
 
-  // save progress to local storage
+  // request permissions and start watching GPS on load
+  useEffect(() => {
+    let locationSubscription: Location.LocationSubscription | null = null;
+
+    const startLocationTracking = async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setLocationError("GPS permissions denied.");
+        return;
+      }
+
+      locationSubscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 3000, // every 3 sec
+          distanceInterval: 2, // or every 2 meters you move
+        },
+        (newLocation) => {
+          setLocation(newLocation);
+          // Polygon Math
+          setActiveParkIndex((currentIndex) => {
+            const targetPark = ROUTE_DATA[currentIndex];
+
+            if (targetPark && targetPark.boundary) {
+              const insidePark = isPointInPolygon(
+                {
+                  latitude: newLocation.coords.latitude,
+                  longitude: newLocation.coords.longitude,
+                },
+                targetPark.boundary,
+              );
+
+              if (insidePark && currentIndex < ROUTE_DATA.length - 1) {
+                return currentIndex + 1;
+              }
+            }
+            return currentIndex; // If not inside, stay on the current park
+          });
+        },
+      );
+    };
+    startLocationTracking();
+
+    // cleanup the GPS watcher if the component unmounts
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
+  }, []);
+
+  // save progress to local storage and load state on boot
   useEffect(() => {
     const loadProgress = async () => {
       try {
@@ -50,34 +150,38 @@ export default function HomeScreen() {
     loadProgress();
   }, []);
 
-  // button handlers
-  const nextPark = async () => {
-    if (activeParkIndex < ROUTE_DATA.length - 1) {
-      const nextIndex = activeParkIndex + 1;
-      setActiveParkIndex(nextIndex);
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, nextIndex.toString());
-      } catch (err) {
-        console.error("Failed to save nextIndex.", err);
-      }
-    }
-  };
-
-  const previousPark = async () => {
-    if (activeParkIndex > 0) {
-      const prevIndex = activeParkIndex - 1;
-      setActiveParkIndex(prevIndex);
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, prevIndex.toString());
-      } catch (err) {
-        console.error("Failed to save prevIndex.", err);
-      }
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
+      {/* 🛰️   DEBUG   */}
+      <View style={styles.gpsBanner}>
+        <Text style={styles.gpsText}>
+          {locationError
+            ? `⚠️ ${locationError}`
+            : location
+              ? `🛰️ Live: ${location.coords.latitude.toFixed(5)}, ${location.coords.longitude.toFixed(5)}`
+              : "🛰️ Searching for GPS signal..."}
+        </Text>
+      </View>
+
       <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.row}>
+          <View style={styles.timelineColumn}>
+            <View style={[styles.node, styles.nodeCompleted]} />
+            <View
+              style={[
+                styles.line,
+                activeParkIndex > 0
+                  ? styles.lineCompleted
+                  : styles.lineUpcoming,
+              ]}
+            />
+          </View>
+          <View style={styles.textColumn}>
+            <Text style={[styles.parkName, styles.myLocationText]}>
+              My Location
+            </Text>
+          </View>
+        </View>
         {ROUTE_DATA.map((park, index) => {
           const isLastPark = index === ROUTE_DATA.length - 1;
 
@@ -112,30 +216,6 @@ export default function HomeScreen() {
           );
         })}
       </ScrollView>
-
-      <View style={styles.controlPanel}>
-        <TouchableOpacity
-          style={[
-            styles.button,
-            activeParkIndex === 0 && styles.buttonDisabled,
-          ]}
-          onPress={previousPark}
-          disabled={activeParkIndex === 0}
-        >
-          <Text style={styles.buttonText}>Back</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.button,
-            activeParkIndex === ROUTE_DATA.length - 1 && styles.buttonDisabled,
-          ]}
-          onPress={nextPark}
-          disabled={activeParkIndex === ROUTE_DATA.length - 1}
-        >
-          <Text style={styles.buttonText}>Move</Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -198,36 +278,21 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: -3,
   },
-
-  // --- BUTTON CONTROL PANEL STYLES ---
-  controlPanel: {
-    position: "absolute",
-    bottom: 30,
-    left: 30,
-    right: 30,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: "#1e1f20",
-    padding: 15,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#2d2f31",
+  myLocationText: {
+    color: "#a8c7fa",
+    fontStyle: "italic",
   },
-  button: {
-    flex: 1,
+  // --- GPS BANNER STYLES ---
+  gpsBanner: {
     backgroundColor: "#004a77",
-    paddingVertical: 12,
-    marginHorizontal: 5,
+    padding: 10,
     borderRadius: 8,
+    marginBottom: 20,
     alignItems: "center",
   },
-  buttonDisabled: {
-    backgroundColor: "#2d2f31",
-    opacity: 0.5,
-  },
-  buttonText: {
+  gpsText: {
     color: "#e3e3e3",
     fontWeight: "bold",
-    fontSize: 16,
+    fontSize: 14,
   },
 });
