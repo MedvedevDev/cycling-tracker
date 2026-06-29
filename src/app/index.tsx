@@ -1,81 +1,17 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import React, { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-// local storage key
-const STORAGE_KEY = "@elbe_ride_active_index";
-
-// ray-Casting Algorithm
-const isPointInPolygon = (
-  point: { latitude: number; longitude: number },
-  polygon: { latitude: number; longitude: number }[],
-) => {
-  let isInside = false;
-  const x = point.latitude;
-  const y = point.longitude;
-
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].latitude;
-    const yi = polygon[i].longitude;
-    const xj = polygon[j].latitude;
-    const yj = polygon[j].longitude;
-
-    // Checks if an imaginary horizontal line drawn from your location intersects the park's borders
-    const intersect =
-      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-    if (intersect) isInside = !isInside;
-  }
-  return isInside;
-};
-
-// parks data
-const ROUTE_DATA = [
-  {
-    id: "1",
-    name: "Jenischpark",
-    boundary: [
-      { latitude: 53.556, longitude: 9.86 },
-      { latitude: 53.556, longitude: 9.872 },
-      { latitude: 53.547, longitude: 9.872 },
-      { latitude: 53.547, longitude: 9.86 },
-    ],
-  },
-  {
-    id: "2",
-    name: "Hirsch Park",
-    boundary: [
-      { latitude: 53.559, longitude: 9.818 },
-      { latitude: 53.559, longitude: 9.83 },
-      { latitude: 53.551, longitude: 9.83 },
-      { latitude: 53.551, longitude: 9.818 },
-    ],
-  },
-  {
-    id: "3",
-    name: "Waldpark Falkenstein",
-    boundary: [
-      { latitude: 53.575, longitude: 9.75 },
-      { latitude: 53.575, longitude: 9.785 },
-      { latitude: 53.56, longitude: 9.785 },
-      { latitude: 53.56, longitude: 9.75 },
-    ],
-  },
-  {
-    id: "4",
-    name: "Klövensteen",
-    boundary: [
-      { latitude: 53.598, longitude: 9.732 },
-      { latitude: 53.598, longitude: 9.748 },
-      { latitude: 53.588, longitude: 9.748 },
-      { latitude: 53.588, longitude: 9.732 },
-    ],
-  },
-  { id: "5", name: "Hetlinger Schanze" },
-  { id: "6", name: "Haseldorfer Marsch" },
-  { id: "7", name: "Stadtpark Glückstadt" },
-];
+import { PARKS } from "../constants/parks";
+import {
+  requestLocationPermission,
+  watchLocation,
+} from "../services/gps/locationService";
+import {
+  loadActiveParkIndex,
+  saveActiveParkIndex,
+} from "../services/storage/rideProgressStorage";
+import { isPointInPolygon } from "../utils/geo/isPointInPolygon";
 
 export default function HomeScreen() {
   const [activeParkIndex, setActiveParkIndex] = useState(0);
@@ -89,66 +25,70 @@ export default function HomeScreen() {
     let locationSubscription: Location.LocationSubscription | null = null;
 
     const startLocationTracking = async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
+      const hasPermission = await requestLocationPermission();
+
+      if (!hasPermission) {
         setLocationError("GPS permissions denied.");
         return;
       }
 
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 3000, // every 3 sec
-          distanceInterval: 2, // or every 2 meters you move
-        },
-        (newLocation) => {
-          setLocation(newLocation);
-          // Polygon Math
-          setActiveParkIndex((currentIndex) => {
-            const targetPark = ROUTE_DATA[currentIndex];
+      locationSubscription = await watchLocation((newLocation) => {
+        setLocation(newLocation);
 
-            if (targetPark && targetPark.boundary) {
-              const insidePark = isPointInPolygon(
-                {
-                  latitude: newLocation.coords.latitude,
-                  longitude: newLocation.coords.longitude,
-                },
-                targetPark.boundary,
-              );
+        // Polygon Math
+        setActiveParkIndex((currentIndex) => {
+          const targetPark = PARKS[currentIndex];
 
-              if (insidePark && currentIndex < ROUTE_DATA.length - 1) {
-                return currentIndex + 1;
-              }
+          if (targetPark && targetPark.boundary) {
+            const insidePark = isPointInPolygon(
+              {
+                latitude: newLocation.coords.latitude,
+                longitude: newLocation.coords.longitude,
+              },
+              targetPark.boundary,
+            );
+
+            if (insidePark && currentIndex < PARKS.length - 1) {
+              return currentIndex + 1;
             }
-            return currentIndex; // If not inside, stay on the current park
-          });
-        },
-      );
+          }
+          return currentIndex; // If not inside, stay on the current park
+        });
+      });
     };
     startLocationTracking();
 
     // cleanup the GPS watcher if the component unmounts
     return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
+      locationSubscription?.remove();
     };
   }, []);
 
-  // save progress to local storage and load state on boot
+  // load ride progress
   useEffect(() => {
     const loadProgress = async () => {
       try {
-        const savedIndex = await AsyncStorage.getItem(STORAGE_KEY);
-        if (savedIndex !== null) {
-          setActiveParkIndex(parseInt(savedIndex, 10));
-        }
+        const savedIndex = await loadActiveParkIndex();
+        setActiveParkIndex(savedIndex);
       } catch (err) {
         console.error("Failed to load ride progress from storage.", err);
       }
     };
+
     loadProgress();
   }, []);
+
+  // save ride progress
+  useEffect(() => {
+    const saveProgress = async () => {
+      try {
+        await saveActiveParkIndex(activeParkIndex);
+      } catch (err) {
+        console.error("Failed to save ride progress.", err);
+      }
+    };
+    saveProgress();
+  }, [activeParkIndex]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -182,8 +122,8 @@ export default function HomeScreen() {
             </Text>
           </View>
         </View>
-        {ROUTE_DATA.map((park, index) => {
-          const isLastPark = index === ROUTE_DATA.length - 1;
+        {PARKS.map((park, index) => {
+          const isLastPark = index === PARKS.length - 1;
 
           const isCompleted = index < activeParkIndex;
           const isActive = index === activeParkIndex;
