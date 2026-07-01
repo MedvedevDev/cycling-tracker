@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PARKS } from "../constants/parks";
+import { getNextActiveParkIndex } from "../features/ride/getNextActiveParkIndex";
 import {
   requestLocationPermission,
   watchLocation,
@@ -11,7 +12,6 @@ import {
   loadActiveParkIndex,
   saveActiveParkIndex,
 } from "../services/storage/rideProgressStorage";
-import { isPointInPolygon } from "../utils/geo/isPointInPolygon";
 
 export default function HomeScreen() {
   const [activeParkIndex, setActiveParkIndex] = useState(0);
@@ -20,7 +20,7 @@ export default function HomeScreen() {
   );
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  // request permissions and start watching GPS on load
+  // --- request permissions and start watching GPS on load
   useEffect(() => {
     let locationSubscription: Location.LocationSubscription | null = null;
 
@@ -35,32 +35,22 @@ export default function HomeScreen() {
       locationSubscription = await watchLocation((newLocation) => {
         setLocation(newLocation);
 
-        // Polygon Math
-        setActiveParkIndex((currentIndex) => {
-          const targetPark = PARKS[currentIndex];
-
-          if (targetPark && targetPark.boundary) {
-            const insidePark = isPointInPolygon(
-              {
-                latitude: newLocation.coords.latitude,
-                longitude: newLocation.coords.longitude,
-              },
-              targetPark.boundary,
-            );
-
-            if (insidePark && currentIndex < PARKS.length - 1) {
-              return currentIndex + 1;
-            }
-          }
-          return currentIndex; // If not inside, stay on the current park
-        });
+        // --- check if we are inside polygon area
+        // --- check if we reached the next park
+        setActiveParkIndex((currentIndex) =>
+          getNextActiveParkIndex({
+            currentIndex,
+            latitude: newLocation.coords.latitude,
+            longitude: newLocation.coords.longitude,
+            parks: PARKS,
+          }),
+        );
       });
     };
     startLocationTracking();
 
-    // cleanup the GPS watcher if the component unmounts
     return () => {
-      locationSubscription?.remove();
+      locationSubscription?.remove(); // cleanup the GPS watcher when component unmounts
     };
   }, []);
 
