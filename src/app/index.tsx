@@ -12,6 +12,7 @@ import {
   loadActiveParkIndex,
   saveActiveParkIndex,
 } from "../services/storage/rideProgressStorage";
+import { GpsStatusBanner } from "@/components/ride/GpsStatusBanner";
 
 export default function HomeScreen() {
   const [activeParkIndex, setActiveParkIndex] = useState(0);
@@ -82,16 +83,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 🛰️   DEBUG   */}
-      <View style={styles.gpsBanner}>
-        <Text style={styles.gpsText}>
-          {locationError
-            ? `⚠️ ${locationError}`
-            : location
-              ? `🛰️ Live: ${location.coords.latitude.toFixed(5)}, ${location.coords.longitude.toFixed(5)}`
-              : "🛰️ Searching for GPS signal..."}
-        </Text>
-      </View>
+      <GpsStatusBanner location={location} locationError={locationError} />
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.row}>
