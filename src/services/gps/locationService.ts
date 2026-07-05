@@ -6,6 +6,12 @@ export async function requestLocationPermission() {
   return status === "granted";
 }
 
+export async function getCurrentLocation() {
+  return Location.getCurrentPositionAsync({
+    accuracy: Location.Accuracy.High,
+  });
+}
+
 export async function watchLocation(
   callback: (location: Location.LocationObject) => void,
 ) {
